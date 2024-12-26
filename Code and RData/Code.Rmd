@@ -7,8 +7,13 @@ This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute
 
 Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
 
+
 ```{r}
 #Loading the libraries and 
+# Set the directory
+setwd("D:/HackBio/Intenship/stage 5/Submissions/Code")
+
+#loading the libraries
 
 library("TCGAbiolinks")
 library("SummarizedExperiment")
@@ -29,6 +34,7 @@ library(DESeq2)
 library(svglite)
 library(forestplot)
 
+#load("D:/HackBio/Intenship/stage 5/Submissions/Code/RData.RData")
 ```
 
 ```{r}
@@ -298,7 +304,7 @@ for(i in 1:NROW(DGEA_sig))
 rcodes
 
 #Plotting Heat map
-svg("Heatmap.svg", width = 10, height = 10)
+pdf("../Images/DGEA and FEA/Heatmap.pdf", width = 10, height = 10)
 par(oma = c(1,1,1,2)) #Setting outter margins
 par(mar = c(1,1,1,1)) #setting inner plot margins
 par(cex.main = 0.75) #size of the title
@@ -313,14 +319,15 @@ heatmap.2(as.matrix((heat.data)), #can use log values for better visualization
           key = TRUE,                       # Show color key
           cexRow = 0.5,                     # Adjust row label size
           cexCol = 0.5,                     # Adjust column label size
-          margins = c(9, 7),                # Adjust margins to fit labels
+          margins = c(9,10),                # Adjust margins to fit labels
           #main = "Heatmap", #Title
-          xlab = "Samples(n=262)",                 #X axis label
+          xlab = "",                 #X axis label
           ylab = "Genes(n=733)",                   #Y axis label   
           key.title = "Color Key",
           keysize = 0.8,
           ColSideColors = ccodes,          # colums are the samples and are color coded based on the previous for loop.
           RowSideColors = rcodes)
+mtext("Samples(n=262)", side = 1, line = 1)  # Add custom xlab at line 4
 legend("topright", inset = c(0, 0), legend = c("OA(n=108)", "YA(n=154)"), fill = c("red", "blue"), title = "Column Colors", cex = 0.8, xpd = TRUE)
 legend("bottomleft",inset = c(-0.02, 0), legend = c("Upregulated_genes(n=197)", "Downregulated genes(n=536)"), fill = c("green", "yellow"), title = "Row Colors", cex = 0.6, xpd = TRUE)
 dev.off()
@@ -370,13 +377,14 @@ EAbarplot_downreg_genes <- (TCGAvisualize_EAbarplot(tf = rownames(dn.EA$ResBP),
                                                     text.size = 2, 
                                                     fig.width = 30,
                                                     fig.height = 15))
+#-------------------------------------------------------------------------------------------------------------------------------------------------
 ```
 
 ```{r}
 #-------------------------------------------------------------------------------------------------------------------------------------------------
 #3. Transcription Factor Enrichment Analysis
 
-
+#-------------------------------------------------------------------------------------------------------------------------------------------------
 #3.1. DoRothEA database based analysis
 
 # Install dorothea from Bioconductor
@@ -412,7 +420,7 @@ write.csv(merged_data_sig_DR_TF, file ="../Documents/Transcription_Factor_Analys
 #selecting significant TF's (sig-TF) based on the type of interaction and expression pattern of TG and TF's
 selected_DR_TF<- merged_data_sig_DR_TF[(merged_data_sig_DR_TF$TF_Reg == merged_data_sig_DR_TF$TG_Reg & merged_data_sig_DR_TF$mor ==1) |(merged_data_sig_DR_TF$TF_Reg != merged_data_sig_DR_TF$TG_Reg & merged_data_sig_DR_TF$mor ==-1),]
 
-
+#-------------------------------------------------------------------------------------------------------------------------------------------------
 #3.2. TRRUST Database
 
 #Obtain the TF-TG database from Github- https://github.com/bioinfonerd/Transcription-Factor-Databases/tree/master/Ttrust_v2
@@ -440,6 +448,7 @@ selected_TF_TR<- merged_data_sig_TF_TR[(merged_data_sig_TF_TR$TF_Reg == merged_d
 selected_TF_TR<-merge(selected_TF_TR,DGEA_sig[,c("mRNA","gene")], by.y ="gene", by.x = "tf")
 write.csv(selected_TF_TR,file="../Documents/Transcription_Factor_Analysis/TF_TR_analysis.csv", row.names = TRUE)
 
+#-------------------------------------------------------------------------------------------------------------------------------------------------
 #3.3. Combing results from both the databases and bar plot of log-FC
 
 #Merging the results from DoRothEA and TRRUST data
@@ -468,7 +477,9 @@ ggplot (combine_TF[!duplicated(combine_TF$TF),],aes (y=TF_logFC, x= reorder(TF, 
     legend.title = element_text(size = 18, colour = "black"),
     legend.text = element_text(size = 14, colour = "black"))
 
-#Functional Enrichment analysis of sig-TF's using ShinyGo ()
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+
+#3.4. Functional Enrichment analysis of sig-TF's using ShinyGo ()
 #read the enrichment analysis result
 #Run ShinyGO and select the top 5 BP, CC, MF GO Terms enriched with the sig-TF's sorted by fold enrichment
 TF_enrich<-read.csv("../Documents/Transcription_Factor_Analysis/FEA_Shiny_GO.csv")
@@ -733,6 +744,13 @@ forestplot(labeltext = table_text,
            xlog = TRUE,
            col = fpColors(box = "royalblue", lines = "black", zero = "gray50")
 )
-#-------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
 ```
 
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
