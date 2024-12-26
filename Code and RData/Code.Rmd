@@ -1,1 +1,738 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+#Loading the libraries and 
+
+library("TCGAbiolinks")
+library("SummarizedExperiment")
+library(dplyr)
+library(tidyr)
+library("biomaRt")
+library(EnhancedVolcano)
+library(org.Hs.eg.db)
+library(reshape2)
+library(survival)
+library(survminer)
+library(tidyverse)
+library(ggplot2)
+library(gplots)
+library(dorothea)
+library(enrichR)
+library(DESeq2)
+library(svglite)
+library(forestplot)
+
+```
+
+```{r}
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+#1. Preliminary Survival analysis, Data extraction and preprocessing
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+#1.1. Summary of the cancer type used in the study
+
+getProjectSummary("TCGA-SARC") #provides the summary of available data
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+#1.2. Survival analysis comparing OA (>=65 years) and YA (18-65 years) sarcoma patients
+
+#Reteriving Clinical data for survival analysis
+
+clinical_q<-GDCquery_clinic("TCGA-SARC") #clinical information
+any(colnames(clinical_q) %in% c("vital.status", "days_to_last_follow_up", "days_to_death")) # the columns needed
+which(colnames(clinical_q) %in% c("vital_status", "days_to_last_follow_up", "days_to_death")) # obtaining the column numbers
+clinical_q[1:4,c(10,33,38)] #visualize them see them
+
+#variable associated with survival number of alive and diseased patients
+table(clinical_q$vital_status)
+
+# change certain values the way they are encoded - status column as boolean T/F values
+clinical_q$deceased <- ifelse(clinical_q$vital_status == "Alive", FALSE, TRUE) #True -Dead and False- alive
+table(clinical_q$deceased)
+# create an "overall survival" variable that is equal to days_to_death for dead patients, and to days_to_last_follow_up for patients who are still alive
+clinical_q$overall_survival <- ifelse(clinical_q$vital_status == "Alive",
+                                    clinical_q$days_to_last_follow_up,
+                                    clinical_q$days_to_death)
+#Making a strata based on age group
+sum(is.na(clinical_q$age_at_diagnosis))
+clinical_q<-clinical_q[!is.na(clinical_q$age_at_diagnosis),] #negate the patients without age at diagnosis information
+#since age_at_diagnosis is in days and conversion factor is 1 year = 365.25 days, we can use  23741.25 as the cutoff for 65 years and 6574.5 for 18 years
+clinical_q$age_group <- ifelse(clinical_q$age_at_diagnosis<23741.25 & clinical_q$age_at_diagnosis>=6574.5, "YA(18-65 yrs)", "OA (>=65 yrs)")
+table(clinical_q$age_group)
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+#1.3. Survival Analysis between OA and YA patients
+kp_data<-data.frame("barcode"=clinical_q$submitter_id,
+                    "overall_survival"= clinical_q$overall_survival,
+                    "deceased"= clinical_q$deceased,
+                    "primary_diagnosis" = clinical_q$primary_diagnosis,
+                    "age_group"= clinical_q$age_group,
+                    "gender" = clinical_q$gender)
+
+kp_data$age_group<-as.factor(kp_data$age_group)
+#Keeping the YA as the reference group for comparision
+kp_data$age_group <- relevel(kp_data$age_group, ref = "YA(18-65 yrs)")
+
+#Cox- regression survival analysis
+cox<- coxph(Surv(overall_survival, deceased)~ age_group, data=kp_data)
+summary(cox)
+
+#KP plot survfit analysis
+fit <- survfit(Surv(overall_survival, deceased) ~ age_group, data = kp_data)
+fit
+ggsurvplot(fit,
+           data = kp_data,
+           pval = T,
+           risk.table = T,
+           legend.title ="Age group")
+
+# Perform log-rank test
+log_rank_test <- survdiff(Surv(overall_survival, deceased) ~ age_group, data = kp_data)
+# View log-rank testresults
+print(log_rank_test)
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+#1.4. Obtaining the RNA-seq data analysis
+
+SARCq_e<- GDCquery(project = "TCGA-SARC",                    #project
+                 data.category = "Transcriptome Profiling", #to obtain RNA-seq data
+                 data.type = "Gene Expression Quantification", #type of analysis
+                 sample.type = c("Metastatic", "Primary Tumor", "Recurrent Tumor")) #to obtain only tumor samples and not normal samples)
+GDCdownload(SARCq_e) #downloading the dataset
+sarc.data<-GDCprepare(SARCq_e) #Preparing the dataset
+
+#tratification of patients based on Age at diagnosis
+Metadata<- data.frame("barcode"= sarc.data$barcode,
+                        "age_at_diagnosis"= sarc.data$age_at_diagnosis,
+                      "Grade"= sarc.data$`paper_FNCLCC grade`,
+                      "Primary_Diagnosis" = sarc.data$primary_diagnosis)
+
+sum(is.na(Metadata$age_at_diagnosis)) #checking for missing or 0 values in age (na)
+Metadata<-Metadata[!is.na(Metadata$age_at_diagnosis),] #negating samples without age at diagnosis information
+sum(is.na(Metadata$age_at_diagnosis))
+sum(Metadata$age_at_diagnosis<0) #checking if there are any 0's
+
+#Creating a Strata column based on age
+Metadata$age_group <- ifelse(Metadata$age_at_diagnosis<23741.25 & Metadata$age_at_diagnosis>=6574.5, "YA", "OA")
+Group1_metadata_YA<- Metadata[Metadata$age_group == 'YA',] #grouping samples with age between 18-40
+Group2_metadata_OA<- Metadata[Metadata$age_group == 'OA',] #grouping samples with age >=40
+table(Metadata$age_group)
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+#1.5. Patient demographics
+# Summarize data: Calculate number of patients and mean age per diagnosis
+summary_demographics <- Metadata %>%
+  group_by(Primary_Diagnosis, age_group) %>%
+  summarise(NumPatients = n(), .groups = "drop")  # Count number of patients
+
+
+# Bubble plot using ggplot2
+ggplot(summary_demographics, aes(y = Primary_Diagnosis, x = age_group, size = NumPatients)) +
+  geom_point(color = "steelblue", alpha = 0.7) +  # Bubble style
+  scale_size_continuous(range = c(3, 15)) +      # Adjust bubble size range
+  labs(
+    title = "Bubble Graph of Diagnosis vs. Age_group",
+    y = "Primary Diagnosis",
+    x = "Age Caegory",
+    size = "Number of Patients"
+  ) +
+  theme_minimal()
+  #theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+#1.6. Data Preprocessing (Normalization and Filteration)
+
+#select the unstranded dataset
+sarc.raw.data<-assays(sarc.data) #using summarized experiments module 
+dim(sarc.raw.data$unstranded) #since we are exploring both strands
+
+#obtaining the unstranded data of the OA and YA samples
+selectedData<-sarc.raw.data$unstranded[,c(Group2_metadata_OA$barcode,Group1_metadata_YA$barcode )]
+
+#Data normalization and filtering
+#Normalization - based on sequencing depth and gene length to ensure comparable expression levels in the samples
+normData<- TCGAanalyze_Normalization(tabDF = selectedData, geneInfo = geneInfoHT, method= "geneLength")
+# Filtering out lowly expressed genes with a quantile normalization cutoff of 0.25
+filtData<- TCGAanalyze_Filtering(tabDF = normData,
+                                 method = "quantile",
+                                 qnt.cut = 0.25) 
+dim(filtData)
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+```
+```{r}
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+#2. Differential Gene Expression analysis (DGEA) and Functional Enrichment analysis (FEA)
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+#2.1 DGEA analysis
+#Perform DGEA using TCGAanalyze between the OA and YA groups
+selectResults<-TCGAanalyze_DEA(mat1 = filtData[,c(Group1_metadata_YA$barcode)], #control group
+                               mat2 = filtData[, c(Group2_metadata_OA$barcode)], #case group
+                               Cond1type = "YA",
+                               Cond2type = "OA",
+                               pipeline = "edgeR")
+dim(selectResults)  
+
+#Differential expression levels for the different conditions
+selectResults.levels<-
+  TCGAanalyze_LevelTab(selectResults, "YA", "OA",  
+                       filtData[,c(Group1_metadata_YA$barcode)],
+                       filtData[, c(Group2_metadata_OA$barcode)])
+dim(selectResults.levels) # main difference in the data points for the 2 conditions
+
+#Selecting significant genes by the logfc and p value cutoff of |logfc| > 1.5 and p value <0.005
+selectResults.levels$diff_exp <-"No"
+selectResults.levels$diff_exp[selectResults.levels$logFC > 1.5 & selectResults.levels$FDR <0.005] <-"UP"
+selectResults.levels$diff_exp[selectResults.levels$logFC < (-1.5) & selectResults.levels$FDR <0.005] <-"DOWN"
+table(selectResults.levels$diff_exp)
+
+# Obtain the gene names as gene symbols
+converted_gene_names<- mapIds(org.Hs.eg.db, 
+                              keys = selectResults.levels$mRNA, 
+                              column = "SYMBOL", 
+                              keytype = "ENSEMBL", 
+                              multiVals = "first")
+
+# Merge the conversion results back to the original dataframe
+selectResults.levels$gene<-converted_gene_names
+# Assign ensemble IDs to genes without gene names (lncRNA's etc.)
+selectResults.levels$gene <- ifelse(is.na(selectResults.levels$gene), selectResults.levels$mRNA, selectResults.levels$gene)
+sum(is.na(selectResults.levels$gene))
+
+#Obtaining the DGEA results
+write.csv(selectResults.levels, file ="../Documents/DGEA_and_FEA/All_DGEA_results.csv", row.names = TRUE)
+
+#Subset of significant differential regulated genes
+DGEA_sig<-selectResults.levels[selectResults.levels$diff_exp == "UP"| selectResults.levels$diff_exp == "DOWN",]
+write.csv(DGEA_sig, file ="../Documents/DGEA_and_FEA/DGEA_sig_results.csv", row.names = TRUE)
+
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+#2.2 Volcano Plot representing up and downregulated genes
+
+# Define the genes to highlight among the top up and downregulated genes
+highlight_genes <- c("PGC", "CRH", "LIPF", "SOX10", "PMP2", "CACNG3", "NCR2", "GKN2", 
+                     "BPIFB1", "CDH19", "LINC02070", "LINC01838", "MIR202HG", "FAM197Y7", 
+                     "OR4D10", "PRB2", "OR7D4", "TRPM1", "TYR", "KRT77")
+
+# Ensure manageable FDR range
+selectResults.levels$FDR[selectResults.levels$FDR < 1e-300] <- 1e-300
+
+# Assign colors to genes based on their significance and direction of regulation
+selectResults.levels$color <- "grey30"  # Default for non-significant genes
+selectResults.levels$color[selectResults.levels$diff_exp == "UP"] <- "red"
+selectResults.levels$color[selectResults.levels$diff_exp == "DOWN"] <- "blue"
+
+# Define genes to highlight
+highlight_genes <- c("PGC", "CRH", "LIPF", "SOX10", "PMP2", "CACNG3", "NCR2", 
+                     "GKN2", "BPIFB1", "CDH19", "LINC02070", "LINC01838", 
+                     "MIR202HG", "FAM197Y7", "OR4D10", "PRB2", "OR7D4", 
+                     "TRPM1", "TYR", "KRT77")
+
+#Color assignment for Up and Downregulated genes
+keyvals <- ifelse(
+  selectResults.levels$diff_exp == "UP", 'royalblue',
+  ifelse(selectResults.levels$diff_exp == "DOWN", 'red',
+         'grey'))
+keyvals[is.na(keyvals)] <- 'black'
+names(keyvals)[keyvals == 'royalblue'] <- 'Upregulated'
+names(keyvals)[keyvals == 'red'] <- 'Downregulated'
+names(keyvals)[keyvals == 'grey'] <- 'Not significant'
+
+EnhancedVolcano(selectResults.levels, #dataset
+                lab = selectResults.levels$gene, #labels to be printed
+                x = 'logFC', #logFC column
+                y = 'FDR',  #FDR column
+                pCutoff = 0.005, #cutoff used for p value
+                FCcutoff = 1.5, #cutoff used for logFC
+                cutoffLineType = 'twodash', #Threshold lines
+                cutoffLineWidth = 0.8, #Threshold lines width
+                drawConnectors = TRUE, #to fit more labels
+                widthConnectors = 0.75, #width of connector
+                max.overlaps = 20, #increase number of genes to be represented
+                selectLab = highlight_genes, #labels to be added
+                colCustom = keyvals, #custom color key
+                title = NULL,       # Remove title
+                subtitle = NULL,    # Remove subtitle
+                caption = 'Thresholds: |logFC| > 1.5, FDR < 0.005')
+
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+#2.3 Heatmap representing  up and downregulated genes
+
+
+heat.data<-filtData[rownames(DGEA_sig),] # selecting the genes that are significantly differentiated from the filtered data
+dim(heat.data)
+
+#color based on the age groups of the samples -column colors
+table(Metadata$age_group) # get the number of samples in each category
+cancer.type<-c(rep("OA", 108), rep("YA",154))
+ccodes<-c()
+for(i in cancer.type)
+{
+  if(i == "OA")
+    ccodes <- c(ccodes,"red")
+  else
+    ccodes <- c(ccodes, "blue")
+}
+ccodes
+
+#add color coding to rows
+rcodes<-c()
+for(i in 1:NROW(DGEA_sig))
+{
+  if(DGEA_sig$diff_exp[i] == "UP")
+    rcodes <- c(rcodes,"green")
+  else
+    rcodes <- c(rcodes, "yellow")
+}
+rcodes
+
+#Plotting Heat map
+svg("Heatmap.svg", width = 10, height = 10)
+par(oma = c(1,1,1,2)) #Setting outter margins
+par(mar = c(1,1,1,1)) #setting inner plot margins
+par(cex.main = 0.75) #size of the title
+heatmap.2(as.matrix((heat.data)), #can use log values for better visualization
+          col = hcl.colors(100, palette = "Blue-Red 3"), # Diverging palette
+          Colv = F,                         # Cluster columns
+          Rowv = F,                         # Cluster rows
+          dendrogram = "none",              # No cluster both rows and columns
+          trace = "none",                   # Remove trace lines
+          scale = "row",                    # Standardizes rows (genes) across samples
+          sepcolor = "black",               #separate the columns
+          key = TRUE,                       # Show color key
+          cexRow = 0.5,                     # Adjust row label size
+          cexCol = 0.5,                     # Adjust column label size
+          margins = c(9, 7),                # Adjust margins to fit labels
+          #main = "Heatmap", #Title
+          xlab = "Samples(n=262)",                 #X axis label
+          ylab = "Genes(n=733)",                   #Y axis label   
+          key.title = "Color Key",
+          keysize = 0.8,
+          ColSideColors = ccodes,          # colums are the samples and are color coded based on the previous for loop.
+          RowSideColors = rcodes)
+legend("topright", inset = c(0, 0), legend = c("OA(n=108)", "YA(n=154)"), fill = c("red", "blue"), title = "Column Colors", cex = 0.8, xpd = TRUE)
+legend("bottomleft",inset = c(-0.02, 0), legend = c("Upregulated_genes(n=197)", "Downregulated genes(n=536)"), fill = c("green", "yellow"), title = "Row Colors", cex = 0.6, xpd = TRUE)
+dev.off()
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+#2.4. Obtain the upregulated and downregulated genes
+
+#Obtainging the significant Up and Downregulated genes
+
+#Upregulated_genes_DGEA<-DGEA_sig[DGEA_sig$diff_exp=="UP",]
+#Downregulated_genes_DGEA<-DGEA_sig[DGEA_sig$diff_exp=="DOWN",]
+
+#write.csv(Upregulated_genes_DGEA, "../Documents/DGEA_and_FEA/Upregulated_DGEA.csv", row.names = TRUE)
+#write.csv(Downregulated_genes_DGEA, "../Documents/DGEA_and_FEA/Downregulated_DGEA.csv", row.names = TRUE)
+
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+#2.5. Functional Enrichment Analysis
+
+up_gene_symbols <- DGEA_sig$gene[DGEA_sig$diff_exp =='UP']
+dn_gene_symbols <- DGEA_sig$gene[DGEA_sig$diff_exp =='DOWN']
+
+up.EA <- TCGAanalyze_EAcomplete(TFname = "Upregulated", up_gene_symbols) # produces result based on BP, CC, MF and Pathways(P)
+dn.EA <- TCGAanalyze_EAcomplete(TFname = "Downregulated", dn_gene_symbols)
+
+# Visualization
+EAbarplot_upreg_genes <- (TCGAvisualize_EAbarplot(tf = rownames(up.EA$ResBP), #Row names
+                                                  GOBPTab = up.EA$ResBP, #results for BP
+                                                  GOMFTab = up.EA$ResMF, #results for MF
+                                                  GOCCTab = up.EA$ResCC, #results for CC
+                                                  PathTab = up.EA$ResPat, #results for Pathway
+                                                  nRGTab = up_gene_symbols, #number of genes in the list
+                                                  nBar = 5, #max number of bars is 5 but can be increased to 10
+                                                  text.size = 2, # 2 
+                                                  fig.width = 30, # size of figure
+                                                  fig.height = 15) #generates a pdf in the working directory
+)
+
+
+EAbarplot_downreg_genes <- (TCGAvisualize_EAbarplot(tf = rownames(dn.EA$ResBP),
+                                                    GOBPTab = dn.EA$ResBP, 
+                                                    GOMFTab = dn.EA$ResMF, 
+                                                    GOCCTab = dn.EA$ResCC, 
+                                                    PathTab = dn.EA$ResPat, 
+                                                    nRGTab = dn_gene_symbols, 
+                                                    nBar = 5, 
+                                                    text.size = 2, 
+                                                    fig.width = 30,
+                                                    fig.height = 15))
+```
+
+```{r}
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+#3. Transcription Factor Enrichment Analysis
+
+
+#3.1. DoRothEA database based analysis
+
+# Install dorothea from Bioconductor
+#if (!requireNamespace("BiocManager", quietly = TRUE))
+#  install.packages("BiocManager")
+#BiocManager::install("dorothea")
+#load the libraries
+
+# Load DoRothEA data (Human TFs_cancer_TCGA data)
+data(dorothea_hs)
+#Catalogue of interactions in the DoRothEA database
+TF_catalogue_DR<- data.frame(dorothea_hs)
+
+#identify transcription factors in DGEA_sig list (significant differentially regulated genes)
+TFs_dorothea<-DGEA_sig[DGEA_sig$gene %in% dorothea_hs$tf,]
+
+#Obtaining the targets(TG) of the identified TF's
+tf_targets_DR<-TF_catalogue_DR[TF_catalogue_DR$tf %in% TFs_dorothea$gene,]
+
+#Selecting TF's with atleast 1 target genes differentially regulated in our dataset (DGEA_sig)
+tf_targets_DR<-tf_targets_DR[tf_targets_DR$target %in% DGEA_sig$gene,]
+
+#Selecting only high confidence interactions
+tf_targets_DR<-tf_targets_DR[tf_targets_DR$confidence %in% c("A","C"),]
+
+#merging the regulation data with the transcription factor data
+merged_data_sig_DR_TF<-merge(tf_targets_DR,DGEA_sig[,c("logFC","FDR","diff_exp","gene")], by.x ="tf", by.y ="gene")
+colnames(merged_data_sig_DR_TF)<-c("tf","confidence","target","mor", "TF_logFC", "TF_FDR","TF_Reg")
+merged_data_sig_DR_TF<-merge(merged_data_sig_DR_TF,DGEA_sig[,c("logFC","FDR","diff_exp","gene")], by.x ="target", by.y ="gene")
+colnames(merged_data_sig_DR_TF)<-c("target","tf","confidence","mor", "TF_logFC", "TF_FDR","TF_Reg","TG_logFC", "TG_FDR","TG_Reg")
+write.csv(merged_data_sig_DR_TF, file ="../Documents/Transcription_Factor_Analysis/Transcription_factor_DoRothEA.csv",row.names = F)
+
+#selecting significant TF's (sig-TF) based on the type of interaction and expression pattern of TG and TF's
+selected_DR_TF<- merged_data_sig_DR_TF[(merged_data_sig_DR_TF$TF_Reg == merged_data_sig_DR_TF$TG_Reg & merged_data_sig_DR_TF$mor ==1) |(merged_data_sig_DR_TF$TF_Reg != merged_data_sig_DR_TF$TG_Reg & merged_data_sig_DR_TF$mor ==-1),]
+
+
+#3.2. TRRUST Database
+
+#Obtain the TF-TG database from Github- https://github.com/bioinfonerd/Transcription-Factor-Databases/tree/master/Ttrust_v2
+
+trrustdata<-read_tsv("https://raw.githubusercontent.com/bioinfonerd/Transcription-Factor-Databases/master/Ttrust_v2/trrust_rawdata.human.tsv", col_names = c("TF", "Target", "Regulation", "Evidence"))
+
+#Identify transcription factors in DGEA_sig list (significant differentially regulated genes)
+TFs_TR<-DGEA_sig[DGEA_sig$gene %in% trrustdata$TF,]
+
+#Obtaining the list of targets for the sig-TFs identified in previous step
+tf_targets_TR<-trrustdata[trrustdata$TF %in% TFs_TR$gene,] #21 TFs have 212 TGs
+
+#Selecting TFs with atleast 1 differentially regulated target gene present in our DGEA
+tf_targets_TR<-tf_targets_TR[tf_targets_TR$Target %in% DGEA_sig$gene,] # 
+
+#merging the regulation data with the transcription factor data
+merged_data_sig_TF_TR<-merge(tf_targets_TR,DGEA_sig[,c("logFC","FDR","diff_exp","gene")], by.x ="TF", by.y ="gene")
+colnames(merged_data_sig_TF_TR)<-c(colnames(tf_targets_TR), "TF_logFC", "TF_FDR","TF_Reg")
+merged_data_sig_TF_TR<-merge(merged_data_sig_TF_TR,DGEA_sig[,c("logFC","FDR","diff_exp","gene")], by.x ="Target", by.y ="gene")
+colnames(merged_data_sig_TF_TR)<-c(colnames(merged_data_sig_TF_TR[1:7]), "TG_logFC", "TG_FDR","TG_Reg")
+write.csv(merged_data_sig_TF_TR, file ="Transcription_factor_TRRUST.csv",row.names = F)
+
+#selecting significant TF's (sig-TF) based on the type of interaction and expression pattern of TG and TF's
+selected_TF_TR<- merged_data_sig_TF_TR[(merged_data_sig_TF_TR$TF_Reg == merged_data_sig_TF_TR$TG_Reg & merged_data_sig_TF_TR$Regulation == "Activation") |(merged_data_sig_TF_TR$TF_Reg != merged_data_sig_TF_TR$TG_Reg & merged_data_sig_TF_TR$Regulation == "Repression"),]
+selected_TF_TR<-merge(selected_TF_TR,DGEA_sig[,c("mRNA","gene")], by.y ="gene", by.x = "tf")
+write.csv(selected_TF_TR,file="../Documents/Transcription_Factor_Analysis/TF_TR_analysis.csv", row.names = TRUE)
+
+#3.3. Combing results from both the databases and bar plot of log-FC
+
+#Merging the results from DoRothEA and TRRUST data
+combine_TF<- selected_DR_TF[,c("tf", "TF_logFC", "TF_Reg")]
+colnames(combine_TF)<-c("TF", "TF_logFC", "TF_Reg")
+combine_TF<- rbind( combine_TF, selected_TF_TR[,c("TF", "TF_logFC", "TF_Reg")])
+
+#Visualizing the gene regulation of the Sig-TF's
+
+ggplot (combine_TF[!duplicated(combine_TF$TF),],aes (y=TF_logFC, x= reorder(TF, TF_logFC), fill = TF_Reg)) +
+  geom_bar(stat = "identity", width = 0.5) +
+  labs(y = "log2(Fold Change)", x = "Genes", fill = "Gene Regulation")+
+  scale_y_continuous(breaks = seq(-7.5, 2, by = 1))+
+  geom_hline(yintercept = 0, color = "black")+   # Horizontal line at y=0
+  theme(
+    panel.background = element_blank(),  # Remove gray background
+    panel.grid.major.x = element_blank(),   # Remove major grid lines
+    panel.grid.minor.x = element_blank(),   # Remove minor grid lines
+    panel.grid.major.y = element_line(color = "lightgrey", linetype = "solid"),  # Major grid lines for y-axis
+    panel.grid.minor.y = element_blank(),  # Remove Minor grid lines for y-axis
+    axis.line.y = element_line(color = "black"),  # Keep y-axis line
+    axis.line.x = element_line(color = "black"),   # Keep x-axis line
+    axis.text.y = element_text(size = 18, colour = "black"),
+    axis.text.x = element_text(hjust = 1,angle = 45,size = 18, colour = "black"),
+    axis.title = element_text(size=18, face = "bold", colour = "black"),
+    legend.title = element_text(size = 18, colour = "black"),
+    legend.text = element_text(size = 14, colour = "black"))
+
+#Functional Enrichment analysis of sig-TF's using ShinyGo ()
+#read the enrichment analysis result
+#Run ShinyGO and select the top 5 BP, CC, MF GO Terms enriched with the sig-TF's sorted by fold enrichment
+TF_enrich<-read.csv("../Documents/Transcription_Factor_Analysis/FEA_Shiny_GO.csv")
+
+#Order by FDR values
+TF_enrich<- TF_enrich[order(TF_enrich$FDR),]
+TF_enrich$neglogp<-(-log10(TF_enrich$FDR))
+TF_enrich$Term<- substr(TF_enrich$Pathway,12,nchar(TF_enrich$Pathway))
+
+#matching colors with the network plot (Cytoscape)
+TF_colors<- c(rgb(166,206,227, maxColorValue = 255), 
+              rgb(31,120,180, maxColorValue = 255), 
+              rgb(178,223,138, maxColorValue = 255), 
+              rgb(51,160,44, maxColorValue = 255), 
+              rgb(251,154,153, maxColorValue = 255))
+# Assign the names from TF_enrich_BP$description
+#names(TF_colors) <- TF_enrich$description[1:5]  # Assumes you want the first 5 descriptions
+ggplot(TF_enrich, aes(x = nGenes, y = reorder(Term, match(Category, c("BP", "MF", "CC"))), size = log2(Fold.Enrichment), shape = Category, color = neglogp)) +
+  geom_point(alpha = 1) +  # Adjust color transparency
+  scale_x_continuous(limits = c(1,9),breaks = seq(1, 9, 2), labels = scales::label_comma())+
+  scale_size_continuous(range = c(3, 7), name = "log2(Fold Enrichment)", breaks = c(3,5,6), labels = c("3", "5", "6")) +  # Adjust bubble size
+  scale_color_gradient(low = "blue", high = "red") +  # Color gradient for P-value
+  labs(x = "No. of Genes",
+       y = "Pathway") +
+  guides(color = guide_colorbar(title = "-log10(FDR)", barwidth = 1, barheight = 4), shape = guide_legend(title = "Category", , override.aes = list(size = 5))) +
+  theme(
+    panel.background = element_blank(),  # Remove gray background
+    panel.grid.major.x = element_line(color = "lightgrey", linetype = "solid"),   # Major grid lines
+    panel.grid.minor.x = element_blank(),   # Remove minor grid lines
+    panel.grid.major.y = element_line(color = "lightgrey", linetype = "solid"),  # Major grid lines for y-axis
+    panel.grid.minor.y = element_blank(),  # Remove Minor grid lines for y-axis
+    panel.border = element_rect(colour = "black", fill=NA, size=1),
+    axis.line.y = element_line(color = "black"),  # Keep y-axis line
+    axis.line.x = element_line(color = "black"),# Keep x-axis line
+    axis.text.x = element_text( size = 15, colour = "black"),
+    axis.text.y = element_text(size = 16, colour = "black"),
+    axis.title = element_text(size=16, face = "bold", colour = "black"),
+    legend.title = element_text(size = 14, colour = "black"),
+    legend.text = element_text(size = 10, colour = "black")) 
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+```
+
+```{r}
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+#4.Gene Specific Survival Analysis for OA patients
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+#4.1. Extract clinical data for OA patients
+
+clinical_survial<-clinical_q[,c("bcr_patient_barcode","overall_survival","deceased","age_group")]
+clinical_survial<-clinical_survial[clinical_survial$age_group=="OA (>=65 yrs)",]
+Metadata$bcr_patient_barcode<-substr(Metadata$barcode,1,12)
+
+clinical_survial<-merge(clinical_survial,Metadata[,c("barcode","bcr_patient_barcode")], by= "bcr_patient_barcode")
+
+#Obtaing the expression count matrix for significant differential expressed genes (sig-DGEs)
+exp_subset<-filtData[DGEA_sig$mRNA ,Group2_metadata_OA$barcode]
+coldata <- as.data.frame(clinical_survial$barcode)
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+#4.2. Preparing the data by Variance Stabilizing Transformation for scaling the data
+
+# Can be obtained from the processed count matrix in DESeq2 pipeline
+dds <- DESeqDataSetFromMatrix(countData = exp_subset,
+                              colData = coldata,
+                              design = ~ 1)
+# Filtering genes with sum total less than 10 reads across all samples (genes that ate expressed)
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+dim(dds)
+#Variance Stabilizing Transformation 
+vsd <-  varianceStabilizingTransformation(dds, blind = FALSE)
+exp_vst <- assay(vsd)
+exp_vst[1:10,1:10]
+dim(exp_vst) 
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+#4.3. Survival analysis for each gene
+# Prepare a data frame to store results
+results_survival <- data.frame(Gene = character(), HazardRatio = numeric(), ci_lower = numeric(), ci_upper = numeric(), pValue_survival = numeric(), Regulation = character(), logFC = numeric(), FDR_exp = numeric(), stringsAsFactors = FALSE)
+
+for(i in 1:nrow(DGEA_sig))
+{
+  # Convert row names to a column without changing column names
+  exp_data_gene <- data.frame(mRNA = rownames(exp_vst), exp_vst, check.names = FALSE)
+  # Reshape the dataframe from wide to long format using `melt()` 
+  exp_data_gene <- melt(exp_data_gene, id.vars = "mRNA", variable.name = "case_id", value.name = "counts")
+    # Merge with DGEA_sig to add gene and diff_exp information
+  exp_data_gene <- merge(exp_data_gene, DGEA_sig[, c("mRNA", "gene", "diff_exp")], by = "mRNA")
+    # Filter for the current gene
+  exp_data_gene <- subset(exp_data_gene, gene == DGEA_sig$gene[i])
+    # get median expression value of the current gene among the OA patients
+  median_value <- median(exp_data_gene$counts)
+  #Avoid genes that have skewed expression valuedata among OA patients (median is equal to minimum or maximum value or 25%, 75% quantile values)
+  if(median_value %in% quantile(exp_data_gene$counts)[c(1,2,4,5)]) {next}
+  
+  # denote which samples have higher or lower expression than median count
+  exp_data_gene$strata <- as.factor(ifelse(exp_data_gene$counts >= median_value, "HIGH", "LOW"))
+  #Add the clinical information of each sample with expression data
+  exp_data_gene <- merge(exp_data_gene, clinical_survial, by.x = 'case_id', by.y = 'barcode')
+  #Reset the reference to be used for survival analysis
+  if(exp_data_gene$diff_exp[1] == "UP") {exp_data_gene$strata <- relevel(exp_data_gene$strata, ref = "LOW")}
+  #Cox- regression survival analysis
+  cox_model<- coxph(Surv(overall_survival, deceased)~ strata  , data=exp_data_gene)
+  summary_model <- summary(cox_model)                 #Summary of cox- analysis
+  hazard_ratio <- exp(coef(cox_model))                #Obtaing hazard ratio
+  p_value <- summary_model$coefficients[ , 5]         #Obtaing p-value
+  ci_lower <- summary_model$conf.int[ , "lower .95"]  # Lower 95% CI
+  ci_upper <- summary_model$conf.int[ , "upper .95"]  # Upper 95% CI
+  results_survival <- rbind(results_survival, data.frame(Gene = exp_data_gene$gene[1], HazardRatio = hazard_ratio, ci_lower= ci_lower ,ci_upper = ci_upper, pValue_survival = p_value, Regulation=exp_data_gene$diff_exp[1], logFC = DGEA_sig$logFC[DGEA_sig$gene==exp_data_gene$gene[1]], FDR_exp = DGEA_sig$FDR[DGEA_sig$gene==exp_data_gene$gene[1]]))
+}
+
+write.csv(results_survival, file = "../Documents/Gene_Specific_Survival_Analysis/Gene_Specific_Survival_Analysis.csv", row.names = F)
+#Obtain the list of genes which have a significant association survival and hazard ratio >1
+sig_survival<-results_survival[(results_survival$HazardRatio>1 &results_survival$pValue_survival <=0.05),]
+sig_survival<-sig_survival[order(sig_survival$Regulation,decreasing = TRUE),]
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+#4.4. Survival Curves - KM plot
+# Prepare a list to store all survival fits
+plots <- list()
+
+# Loop through each gene and create survival fits
+for (i in 1:nrow(sig_survival))
+{
+  #changing the structure of the dataframe
+  exp_data_gene <- exp_vst %>%
+    as.data.frame() %>%
+    as_tibble(rownames = "mRNA") %>%
+    melt(id.vars = "mRNA", variable.name = "case_id", value.name = "counts") %>%
+    left_join(., DGEA_sig[, c("mRNA", "gene", "diff_exp")], by = "mRNA") %>%
+    filter(gene == sig_survival$Gene[i])
+  # denote which cases have higher or lower expression than median count
+  exp_data_gene$strata <- as.factor(ifelse(exp_data_gene$counts >= median(exp_data_gene$counts), "HIGH", "LOW"))
+  #Merge with clinical data
+  exp_data_gene <- merge(exp_data_gene, clinical_survial, by.x = 'case_id', by.y = 'barcode')
+  
+  # Fit the survival model for the current gene
+  surv_fit <- survfit(Surv(overall_survival, deceased) ~ strata, data = exp_data_gene)
+  plots[[i]] <- ggsurvplot(surv_fit, 
+                           data = exp_data_gene, 
+                           title = paste(exp_data_gene$gene), 
+                           pval = TRUE,  # Show p-value
+                           risk.table = FALSE,  # Turn off risk table to keep plot simple
+                           xlab = "Time(days)", 
+                           ylab = "Overall Survival", 
+                           legend.title = "Expression",
+                           legend.labs = c(paste(exp_data_gene$gene[1], "High"), paste(exp_data_gene$gene[1], "Low")),# Labels for strata
+                           ggtheme = theme_minimal() +
+                             theme(plot.title = element_text(hjust = 0.5,vjust = -2),
+                                   panel.background = element_rect(fill = "white", color = "gray"),  # Remove gray background
+                                   panel.grid.major.x = element_blank(),   # Major grid lines
+                                   panel.grid.minor.x = element_blank(),   # Remove minor grid lines
+                                   panel.grid.major.y = element_blank(),  # Major grid lines for y-axis
+                                   panel.grid.minor.y = element_blank(),  # Remove Minor grid lines for y-axis
+                                   panel.border = element_rect(colour = "black", fill=NA, size=1),
+                                   axis.line.y = element_line(color = "black"),  # Keep y-axis line
+                                   axis.line.x = element_line(color = "black")))   # Keep x-axis line
+}
+
+# Combine all plots into one
+combined_plot <- arrange_ggsurvplots(plots, 
+                                     ncol = 4,  # Number of columns
+                                     nrow = 4) #Number of rows
+#Save the file
+ggsave("../Images/Survival/combined_survival_curves_final.pdf", 
+       plot = combined_plot, 
+       width = 20,  
+       height = 20,  
+       dpi = 150)  
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+#4.4. Bar plot of the logFC of the significant survival associated genes (sig-Survial) in OA patients
+
+ggplot (sig_survival,aes (y=logFC, x= reorder(Gene, logFC), fill = Regulation)) +
+  geom_bar(stat = "identity", width = 0.5) +
+  labs(y = "log2(Fold Change)", x = "Genes", fill = "Gene Regulation")+
+  scale_y_continuous(breaks = seq(-6, 3, by = 1))+
+  geom_hline(yintercept = 0, color = "black")+   # Horizontal line at y=0
+  theme(
+    panel.background = element_blank(),  # Remove gray background
+    panel.grid.major.x = element_blank(),   # Remove major grid lines
+    panel.grid.minor.x = element_blank(),   # Remove minor grid lines
+    panel.grid.major.y = element_line(color = "lightgrey", linetype = "solid"),  # Major grid lines for y-axis
+    panel.grid.minor.y = element_blank(),  # Remove Minor grid lines for y-axis
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 18, colour = "black"),
+    axis.text.y = element_text(size = 18, colour = "black"),
+    axis.title = element_text(size=18, face = "bold", colour = "black"),
+    legend.title = element_text(size = 18, colour = "black"),
+    legend.text = element_text(size = 14, colour = "black"),
+    axis.line.y = element_line(color = "black"),  # Keep y-axis line
+    axis.line.x = element_line(color = "black"))   # Keep x-axis line
+
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+#4.5. FEA (Functional enrichment analysis) of the significant survival associated genes (sig-Survial) in OA patients using enricR package
+
+#List of databases in EnrichR
+enrichR::listEnrichrDbs()
+
+# Perform the enrichment analysis for the sig-Survial 
+enrichment_results <- enrichr(sig_survival$Gene, databases = c("GO_Biological_Process_2023", "GO_Molecular_Function_2023", "GO_Cellular_Component_2023"))
+
+#Select the top 5 BP, CC, MF terms enriched with sig-Survial by Combined.Score
+surv_enrich<-rbind(enrichment_results$GO_Biological_Process_2023 %>% top_n(5, Combined.Score) %>% mutate(Category = "BP"), enrichment_results$GO_Molecular_Function_2023%>% top_n(5, Combined.Score) %>% mutate(Category = "MF"), enrichment_results$GO_Cellular_Component_2023%>% top_n(5, Combined.Score) %>% mutate(Category = "CC"))
+surv_enrich$N_genes<-as.numeric(substr(surv_enrich$Overlap,1,1))
+surv_enrich$Pathway<- substr(surv_enrich$Term, 1,nchar(surv_enrich$Term)-13)
+
+ggplot(surv_enrich, aes(x = Combined.Score, y = reorder(Pathway, match(Category, c("BP", "MF", "CC"))), size = N_genes, shape = Category, color = -log10(P.value))) +
+  geom_point(alpha = 1) +  # Adjust color transparency
+  scale_size_continuous(range = c(2,5), name = "Number of Genes", breaks = 2:5, labels = as.character(1:4)) +  # Adjust bubble size
+  scale_color_gradient(low = "blue", high = "red") +  # Color gradient for P-value
+  labs(x = "Combined Score (Fold Enrichment)",
+       y = "Pathway") +
+  guides(color = guide_colorbar(title = "-log10(P_value)", barwidth = 1, barheight = 4), shape = guide_legend(title = "Category", , override.aes = list(size = 5))) +
+  theme(
+    panel.background = element_blank(),  # Remove gray background
+    panel.grid.major.x = element_line(color = "lightgrey", linetype = "solid"),   # Major grid lines
+    panel.grid.minor.x = element_blank(),   # Remove minor grid lines
+    panel.grid.major.y = element_line(color = "lightgrey", linetype = "solid"),  # Major grid lines for y-axis
+    panel.grid.minor.y = element_blank(),  # Remove Minor grid lines for y-axis
+    panel.border = element_rect(colour = "black", fill=NA, size=1),
+    axis.line.y = element_line(color = "black"),  # Keep y-axis line
+    axis.line.x = element_line(color = "black"),# Keep x-axis line
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 16, colour = "black"),
+    axis.text.y = element_text(size = 16, colour = "black"),
+    axis.title = element_text(size=16, face = "bold", colour = "black"),
+    legend.title = element_text(size = 14, colour = "black"),
+    legend.text = element_text(size = 10, colour = "black")) 
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+#4.6. Forest plot representing the HR of each gene's expression in the OA sarcoma patients
+
+# Order the dataframe by HazardRatio
+library(forestplot)
+
+# Order the dataframe by HazardRatio
+sig_survival <- sig_survival[order(sig_survival$HazardRatio), ]
+
+#Obtaining the strata associated with poor prognosis in OA
+sig_survival$strata<-rownames(sig_survival)
+sig_survival$strata<- gsub("strataHIGH[0-9]+", "High Expression", sig_survival$strata)
+sig_survival$strata<- gsub("strataLOW[0-9]+", "Low Expression", sig_survival$strata)
+
+#LAbel column represent the expression strata (High/Low) of gene associated with poor survival (HR>1)
+sig_survival$Label<-paste(sig_survival$strata, sig_survival$Gene, sep = " - ")
+
+#Text to be printed for Forest plot
+table_text <-cbind(sig_survival$Label, sprintf("%.3f",sig_survival$pValue_survival))
+table_text<- rbind(c("Gene-ExpressionLevel", "P_value", "Hazard Ratio", "95% CI"), table_text) 
+
+# Create a forest plot with the new labels
+forestplot(labeltext = table_text,
+           mean = c(NA,sig_survival$HazardRatio),
+           lower = c(NA, sig_survival$ci_lower),
+           upper = c(NA, sig_survival$ci_upper),
+           xlab = "Hazard Ratio(log scale)",
+           is.summary = c(TRUE, rep(FALSE, nrow(sig_survival))),
+           boxsize = 0.5,
+           zero = 1,
+           xlog = TRUE,
+           col = fpColors(box = "royalblue", lines = "black", zero = "gray50")
+)
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+```
 
