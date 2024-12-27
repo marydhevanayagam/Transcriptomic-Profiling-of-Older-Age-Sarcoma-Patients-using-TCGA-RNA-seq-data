@@ -9,11 +9,8 @@ Try executing this chunk by clicking the *Run* button within the chunk or by pla
 
 
 ```{r}
-#Loading the libraries and 
-# Set the directory
-setwd("D:/HackBio/Intenship/stage 5/Submissions/Code")
-
-#loading the libraries
+#-------------------------------------------------------------------------------------------------------------------------------------------------
+#Loading the libraries
 
 library("TCGAbiolinks")
 library("SummarizedExperiment")
@@ -34,7 +31,7 @@ library(DESeq2)
 library(svglite)
 library(forestplot)
 
-#load("D:/HackBio/Intenship/stage 5/Submissions/Code/RData.RData")
+#-------------------------------------------------------------------------------------------------------------------------------------------------
 ```
 
 ```{r}
@@ -105,7 +102,7 @@ log_rank_test <- survdiff(Surv(overall_survival, deceased) ~ age_group, data = k
 print(log_rank_test)
 
 #-------------------------------------------------------------------------------------------------------------------------------------------------
-#1.4. Obtaining the RNA-seq data analysis
+#1.5. Obtaining the RNA-seq data analysis
 
 SARCq_e<- GDCquery(project = "TCGA-SARC",                    #project
                  data.category = "Transcriptome Profiling", #to obtain RNA-seq data
@@ -137,7 +134,6 @@ table(Metadata$age_group)
 summary_demographics <- Metadata %>%
   group_by(Primary_Diagnosis, age_group) %>%
   summarise(NumPatients = n(), .groups = "drop")  # Count number of patients
-
 
 # Bubble plot using ggplot2
 ggplot(summary_demographics, aes(y = Primary_Diagnosis, x = age_group, size = NumPatients)) +
@@ -744,13 +740,5 @@ forestplot(labeltext = table_text,
            xlog = TRUE,
            col = fpColors(box = "royalblue", lines = "black", zero = "gray50")
 )
-
-
-
+#-------------------------------------------------------------------------------------------------------------------------------------------------
 ```
-
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
-
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
-
-The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
