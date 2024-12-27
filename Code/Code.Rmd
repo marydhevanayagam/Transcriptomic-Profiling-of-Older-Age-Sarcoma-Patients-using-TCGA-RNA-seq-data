@@ -383,12 +383,6 @@ EAbarplot_downreg_genes <- (TCGAvisualize_EAbarplot(tf = rownames(dn.EA$ResBP),
 #-------------------------------------------------------------------------------------------------------------------------------------------------
 #3.1. DoRothEA database based analysis
 
-# Install dorothea from Bioconductor
-#if (!requireNamespace("BiocManager", quietly = TRUE))
-#  install.packages("BiocManager")
-#BiocManager::install("dorothea")
-#load the libraries
-
 # Load DoRothEA data (Human TFs_cancer_TCGA data)
 data(dorothea_hs)
 #Catalogue of interactions in the DoRothEA database
