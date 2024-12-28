@@ -68,8 +68,8 @@ This project is built around an R Notebook (\`code.Rmd\`) that contains multiple
         2. [Heatmap](Images/DGEA%20and%20FEA/Heatmap.pdf)
         3. [Up-regulated genes FEA](Images/DGEA%20and%20FEA/Up_regulated_FEA.pdf)
         4. [Down regulated genes\_FEA](Images/DGEA%20and%20FEA/Down_regulated_FEA.pdf)
-        5. [DGEA results(all genes).csv
-        6. [DGEA results(significant gens).csv
+        5. [DGEA results(all genes).csv](Documents/DGEA_and_FEA/All_DGEA_results.csv)
+        7. [DGEA results(significant gens).csv](Documents/DGEA_and_FEA/DGEA_sig_results.csv)
     4. **Section 3**:  Transcription Factor Enrichment Analysis - <br>
      **_Description:_** <br>
       Using DoRothEA and TRRUST trancription factor- Target interaction databases, in this section significant transcription factors (sig-TFs) are identified as illustrated in the [Flowchart\_TFEA](Images/Methodology/TFEA%20Methodology.pdf). Then we use Cytoscape app and STRING network database to visualize the interactions of the sig-TF’s. FEA analysis of the sig-TF’s is done using the ShinyGO web based tool and the top 5 GO terms are visualized in R. <br>
