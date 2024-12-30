@@ -211,11 +211,11 @@ selectResults.levels$gene <- ifelse(is.na(selectResults.levels$gene), selectResu
 sum(is.na(selectResults.levels$gene))
 
 #Obtaining the DGEA results
-write.csv(selectResults.levels, file ="../Documents/DGEA_and_FEA/All_DGEA_results.csv", row.names = TRUE)
+write.csv(selectResults.levels, file ="../Documents/DGEA_and_FEA/All_DGEA_results.csv", row.names = F)
 
 #Subset of significant differential regulated genes
 DGEA_sig<-selectResults.levels[selectResults.levels$diff_exp == "UP"| selectResults.levels$diff_exp == "DOWN",]
-write.csv(DGEA_sig, file ="../Documents/DGEA_and_FEA/DGEA_sig_results.csv", row.names = TRUE)
+write.csv(DGEA_sig, file ="../Documents/DGEA_and_FEA/DGEA_sig_results.csv", row.names = F)
 
 
 #-------------------------------------------------------------------------------------------------------------------------------------------------
@@ -336,8 +336,8 @@ dev.off()
 #Upregulated_genes_DGEA<-DGEA_sig[DGEA_sig$diff_exp=="UP",]
 #Downregulated_genes_DGEA<-DGEA_sig[DGEA_sig$diff_exp=="DOWN",]
 
-#write.csv(Upregulated_genes_DGEA, "../Documents/DGEA_and_FEA/Upregulated_DGEA.csv", row.names = TRUE)
-#write.csv(Downregulated_genes_DGEA, "../Documents/DGEA_and_FEA/Downregulated_DGEA.csv", row.names = TRUE)
+#write.csv(Upregulated_genes_DGEA, "../Documents/DGEA_and_FEA/Upregulated_DGEA.csv", row.names = F)
+#write.csv(Downregulated_genes_DGEA, "../Documents/DGEA_and_FEA/Downregulated_DGEA.csv", row.names = F)
 
 
 #-------------------------------------------------------------------------------------------------------------------------------------------------
@@ -383,6 +383,12 @@ EAbarplot_downreg_genes <- (TCGAvisualize_EAbarplot(tf = rownames(dn.EA$ResBP),
 #-------------------------------------------------------------------------------------------------------------------------------------------------
 #3.1. DoRothEA database based analysis
 
+# Install dorothea from Bioconductor
+#if (!requireNamespace("BiocManager", quietly = TRUE))
+#  install.packages("BiocManager")
+#BiocManager::install("dorothea")
+#load the libraries
+
 # Load DoRothEA data (Human TFs_cancer_TCGA data)
 data(dorothea_hs)
 #Catalogue of interactions in the DoRothEA database
@@ -409,6 +415,8 @@ write.csv(merged_data_sig_DR_TF, file ="../Documents/Transcription_Factor_Analys
 
 #selecting significant TF's (sig-TF) based on the type of interaction and expression pattern of TG and TF's
 selected_DR_TF<- merged_data_sig_DR_TF[(merged_data_sig_DR_TF$TF_Reg == merged_data_sig_DR_TF$TG_Reg & merged_data_sig_DR_TF$mor ==1) |(merged_data_sig_DR_TF$TF_Reg != merged_data_sig_DR_TF$TG_Reg & merged_data_sig_DR_TF$mor ==-1),]
+write.csv(selected_DR_TF, file ="../Documents/Transcription_Factor_Analysis/sig-TF_DoRothEA_analysis.csv",row.names = F)
+
 
 #-------------------------------------------------------------------------------------------------------------------------------------------------
 #3.2. TRRUST Database
@@ -431,12 +439,12 @@ merged_data_sig_TF_TR<-merge(tf_targets_TR,DGEA_sig[,c("logFC","FDR","diff_exp",
 colnames(merged_data_sig_TF_TR)<-c(colnames(tf_targets_TR), "TF_logFC", "TF_FDR","TF_Reg")
 merged_data_sig_TF_TR<-merge(merged_data_sig_TF_TR,DGEA_sig[,c("logFC","FDR","diff_exp","gene")], by.x ="Target", by.y ="gene")
 colnames(merged_data_sig_TF_TR)<-c(colnames(merged_data_sig_TF_TR[1:7]), "TG_logFC", "TG_FDR","TG_Reg")
-write.csv(merged_data_sig_TF_TR, file ="Transcription_factor_TRRUST.csv",row.names = F)
+write.csv(merged_data_sig_TF_TR, file ="../Documents/Transcription_factor_TRRUST.csv",row.names = F)
 
 #selecting significant TF's (sig-TF) based on the type of interaction and expression pattern of TG and TF's
 selected_TF_TR<- merged_data_sig_TF_TR[(merged_data_sig_TF_TR$TF_Reg == merged_data_sig_TF_TR$TG_Reg & merged_data_sig_TF_TR$Regulation == "Activation") |(merged_data_sig_TF_TR$TF_Reg != merged_data_sig_TF_TR$TG_Reg & merged_data_sig_TF_TR$Regulation == "Repression"),]
 selected_TF_TR<-merge(selected_TF_TR,DGEA_sig[,c("mRNA","gene")], by.y ="gene", by.x = "tf")
-write.csv(selected_TF_TR,file="../Documents/Transcription_Factor_Analysis/TF_TR_analysis.csv", row.names = TRUE)
+write.csv(selected_TF_TR,file="../Documents/Transcription_Factor_Analysis/sig-TF_TRRUST_analysis.csv", row.names = F)
 
 #-------------------------------------------------------------------------------------------------------------------------------------------------
 #3.3. Combing results from both the databases and bar plot of log-FC
@@ -587,6 +595,7 @@ write.csv(results_survival, file = "../Documents/Gene_Specific_Survival_Analysis
 #Obtain the list of genes which have a significant association survival and hazard ratio >1
 sig_survival<-results_survival[(results_survival$HazardRatio>1 &results_survival$pValue_survival <=0.05),]
 sig_survival<-sig_survival[order(sig_survival$Regulation,decreasing = TRUE),]
+write.csv(sig_survival, file = "../Documents/Gene_Specific_Survival_Analysis/sig-Survival.csv", row.names = F)
 
 #-------------------------------------------------------------------------------------------------------------------------------------------------
 #4.4. Survival Curves - KM plot
@@ -636,7 +645,7 @@ combined_plot <- arrange_ggsurvplots(plots,
                                      ncol = 4,  # Number of columns
                                      nrow = 4) #Number of rows
 #Save the file
-ggsave("../Images/Survival/combined_survival_curves_final.pdf", 
+ggsave("../Images/Gene_Specific_Survival_Analysis/combined_survival_curves_final.pdf", 
        plot = combined_plot, 
        width = 20,  
        height = 20,  
@@ -736,3 +745,9 @@ forestplot(labeltext = table_text,
 )
 #-------------------------------------------------------------------------------------------------------------------------------------------------
 ```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
