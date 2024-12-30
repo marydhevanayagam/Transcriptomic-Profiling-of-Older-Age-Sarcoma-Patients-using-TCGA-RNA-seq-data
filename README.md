@@ -78,23 +78,26 @@ This project is built around an R Notebook (\`code.Rmd\`) that contains multiple
         2. [TRRUST TF-TG database\_Github\_repository](https://github.com/bioinfonerd/Transcription-Factor-Databases/tree/master/Ttrust_v2)
         3. [ShinyGO Results\_csv](Documents/Transcription_Factor_Analysis/TF_FEA_Shiny_GO.csv) <br>
         
-       **_Outputs:_** <br> This section produces 4 images and 2 csv 
+       **_Outputs:_** <br> This section produces 4 images and 4 csv 
         1. [DGEA of sig-TF's](Images/TFEA/Sig-TF_DGEA.pdf)
         2. [FEA of sig-TFs](Images/TFEA/Sig-TF_FEA.pdf)
         3. [Network for TF's identified by DoRothEA database cytoscape](Images/TFEA/TF_Dorothea_Network_Cytoscape.svg)
         4. [Network for TF's identified by TRRUST database_ cytoscape](Images/TFEA/TF_TRRUST_Network_Cytoscape.svg)
         5. [TF's from DoRothEA.csv](Documents/Transcription_Factor_Analysis/Transcription_factor_DoRothEA.csv)
         6. [TF's from TRRUST.csv](Documents/Transcription_Factor_Analysis/Transcription_factor_TRRUST.csv)
+        7. [sig-TF's identified from DoRothEA based analysis](Documents/Transcription_Factor_Analysis/sig-TF_DoRothEA_analysis.csv)
+        8. [sig-TF's identified from TRRUST based analysis](Documents/Transcription_Factor_Analysis/sig-TF_TRRUST_analysis.csv)
     5. **Section 4**:  Gene Specific Survival analysis (Prognostic markers) - <br>
        **_Description:_** <br>
        This section performs a gene specific survival analysis of the OA sarcoma patients exclusively by comparing samples with high (expression> median) and low (expression\<median) values to identify genes that have a significant association with their lower survival as illustrated in the [Flowchart\_GSSA](Images/Methodology/Gene_Specific_Survival_Analysis_Methodology.pdf). Cox regression and KM log- rank association test based results are used to select the significant survival associated genes (sig-Surv). Functional enrichment analysis of these genes is done using the enrichR package. Further, a forest plot to represent the sig-Surv genes, expression strata (high/low) and their HR’s is plotted. <br>
        **_Outputs:_** <br>
-       This section produces 4 images and 1 csv
+       This section produces 4 images and 2 csv
          1. [DGEA of significant survival associated genes](Images/Gene_Specific_Survival_Analysis/Sig-Survival_FEA.pdf)
          2. [FEA of significant survival associated genes](Images/Gene_Specific_Survival_Analysis/Sig-Survival_FEA.pdf)
          3. [KM Plot for the significant survival associated genes](Images/Gene_Specific_Survival_Analysis/combined_survival_curves_final.pdf)
          4. [Forest Plot (Cox) for the survival associated genes](Images/Gene_Specific_Survival_Analysis/Forest_plot_Gene_Specific_Survival_Analysis.pdf)
          5. [Gene Specific Survival Analysis all genes.csv](Documents/Gene_Specific_Survival_Analysis/Gene_Specific_Survival_Analysis.csv)
+         6. [Significant differentially expressed genes associated with survival(sig-Survival)](Documents/Gene_Specific_Survival_Analysis/sig-Survival.csv)
 
 ## **Acknowledgments**
 
