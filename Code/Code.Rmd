@@ -217,14 +217,11 @@ write.csv(selectResults.levels, file ="../Documents/DGEA_and_FEA/All_DGEA_result
 DGEA_sig<-selectResults.levels[selectResults.levels$diff_exp == "UP"| selectResults.levels$diff_exp == "DOWN",]
 write.csv(DGEA_sig, file ="../Documents/DGEA_and_FEA/DGEA_sig_results.csv", row.names = F)
 
-
 #-------------------------------------------------------------------------------------------------------------------------------------------------
 #2.2 Volcano Plot representing up and downregulated genes
 
 # Define the genes to highlight among the top up and downregulated genes
-highlight_genes <- c("PGC", "CRH", "LIPF", "SOX10", "PMP2", "CACNG3", "NCR2", "GKN2", 
-                     "BPIFB1", "CDH19", "LINC02070", "LINC01838", "MIR202HG", "FAM197Y7", 
-                     "OR4D10", "PRB2", "OR7D4", "TRPM1", "TYR", "KRT77")
+highlight_genes <- c(DGEA_sig$gene[order(-DGEA_sig$logFC)][1:10], DGEA_sig$gene[order(DGEA_sig$logFC)][1:10])
 
 # Ensure manageable FDR range
 selectResults.levels$FDR[selectResults.levels$FDR < 1e-300] <- 1e-300
@@ -233,12 +230,6 @@ selectResults.levels$FDR[selectResults.levels$FDR < 1e-300] <- 1e-300
 selectResults.levels$color <- "grey30"  # Default for non-significant genes
 selectResults.levels$color[selectResults.levels$diff_exp == "UP"] <- "red"
 selectResults.levels$color[selectResults.levels$diff_exp == "DOWN"] <- "blue"
-
-# Define genes to highlight
-highlight_genes <- c("PGC", "CRH", "LIPF", "SOX10", "PMP2", "CACNG3", "NCR2", 
-                     "GKN2", "BPIFB1", "CDH19", "LINC02070", "LINC01838", 
-                     "MIR202HG", "FAM197Y7", "OR4D10", "PRB2", "OR7D4", 
-                     "TRPM1", "TYR", "KRT77")
 
 #Color assignment for Up and Downregulated genes
 keyvals <- ifelse(
@@ -262,6 +253,7 @@ EnhancedVolcano(selectResults.levels, #dataset
                 widthConnectors = 0.75, #width of connector
                 max.overlaps = 20, #increase number of genes to be represented
                 selectLab = highlight_genes, #labels to be added
+                labSize=4,
                 colCustom = keyvals, #custom color key
                 title = NULL,       # Remove title
                 subtitle = NULL,    # Remove subtitle
